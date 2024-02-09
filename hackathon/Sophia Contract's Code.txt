@@ -1,0 +1,46 @@
+contract ExpenseBuddy =
+
+  record roommate = { name : string, address : address }
+
+  record expense = { description : string, amount : int, paid : bool }
+
+  record state = { roommates : map(address, roommate),
+                   expenses : map(int, expense),
+                   next_expense_id : int }
+
+  stateful entrypoint init() : state =
+    { roommates = {},
+      expenses = {},
+      next_expense_id = 1 }
+
+  stateful entrypoint addRoommate(name : string) =
+    require(!Map.member(Call.caller, state.roommates), "Roommate already exists")
+    let newRoommate = { name = name, address = Call.caller }
+    put(state{ roommates[Call.caller] = newRoommate })
+
+  stateful entrypoint addExpense(description : string, amount : int) =
+    require(Map.member(Call.caller, state.roommates), "You are not a registered roommate")
+    let newExpense = { description = description, amount = amount, paid = false }
+    put(state{ expenses[state.next_expense_id] = newExpense, next_expense_id = state.next_expense_id + 1 })
+
+  payable stateful entrypoint payExpense(expenseId : int) =
+    let expense = getExpense(expenseId)
+    require(!expense.paid, "Expense has already been paid")
+    Chain.spend(Call.caller, expense.amount)
+    put(state{ expenses[expenseId].paid = true })
+
+  entrypoint getExpense(expenseId : int) : expense =
+    switch(Map.lookup(expenseId, state.expenses))
+      None => abort("Expense not found")
+      Some(exp) => exp
+
+  entrypoint showRoommates() : list(roommate) =
+    extractRoommates(state.roommates)
+
+  function extractRoommates(roommatesMap : map(address, roommate)) : list(roommate) =
+    extractRoommatesRec(Map.to_list(roommatesMap), [])
+
+  function extractRoommatesRec(roommatesList : list((address * roommate)), acc : list(roommate)) : list(roommate) =
+    switch(roommatesList)
+      [] => acc
+      (addr, rm) :: rest => extractRoommatesRec(rest, rm :: acc)
